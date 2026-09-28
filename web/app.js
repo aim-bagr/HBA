@@ -536,6 +536,12 @@ async function loadHbaRun(runName) {
   if (trajLineBefore) { threeScene.remove(trajLineBefore); trajLineBefore = null; }
   if (trajLineAfter) { threeScene.remove(trajLineAfter); trajLineAfter = null; }
   if (trajLineDense) { threeScene.remove(trajLineDense); trajLineDense = null; }
+  if (toggleDenseTraj) {
+    toggleDenseTraj.disabled = true;
+    toggleDenseTraj.checked = false;
+    toggleDenseTraj.parentElement.classList.add('opacity-40');
+    isDenseTrajVisible = false;
+  }
 
   // Load Submaps Metadata
   const smRes = await fetch(`/api/runs/${encodeURIComponent(runName)}/submaps`);
@@ -608,12 +614,9 @@ async function loadDenseTrajectory(runName) {
         toggleDenseTraj.disabled = true;
         toggleDenseTraj.checked = false;
         toggleDenseTraj.parentElement.classList.add('opacity-40');
+        isDenseTrajVisible = false;
       }
       return;
-    }
-    if (toggleDenseTraj) {
-      toggleDenseTraj.disabled = false;
-      toggleDenseTraj.parentElement.classList.remove('opacity-40');
     }
     const text = await res.text();
     const lines = text.trim().split('\n');
@@ -634,8 +637,22 @@ async function loadDenseTrajectory(runName) {
 
     threeScene.add(line);
     trajLineDense = line;
+
+    if (toggleDenseTraj) {
+      toggleDenseTraj.disabled = false;
+      toggleDenseTraj.checked = true;
+      toggleDenseTraj.parentElement.classList.remove('opacity-40');
+      isDenseTrajVisible = true;
+    }
     trajLineDense.visible = isDenseTrajVisible;
-  } catch (e) {}
+  } catch (e) {
+    if (toggleDenseTraj) {
+      toggleDenseTraj.disabled = true;
+      toggleDenseTraj.checked = false;
+      toggleDenseTraj.parentElement.classList.add('opacity-40');
+      isDenseTrajVisible = false;
+    }
+  }
 }
 
 async function streamSubmaps(runName) {
