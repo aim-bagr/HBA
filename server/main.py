@@ -205,8 +205,12 @@ async def get_run_submaps(run_name: str):
             "num_points": num_pts,
             "pos_before": pos_b,
             "pos_after": pos_a,
+            "pos_input": pos_b,
+            "pos_refined": pos_a,
             "pose_before_raw": poses_b[i] if i < len(poses_b) else None,
             "pose_after_raw": poses_a[i] if i < len(poses_a) else None,
+            "pose_input_raw": poses_b[i] if i < len(poses_b) else None,
+            "pose_refined_raw": poses_a[i] if i < len(poses_a) else None,
             "source_dir": str(source_dir) if source_dir else None
         })
 
