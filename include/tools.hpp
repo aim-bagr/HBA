@@ -6,6 +6,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <math.h>
+#include <chrono>
 
 #define HASH_P 116101
 #define MAX_N 10000000019
@@ -27,8 +28,13 @@ typedef pcl::PointXYZ PointType;
 // typedef pcl::PointXYZINormal PointType;
 using namespace std;
 
-Eigen::Matrix3d I33(Eigen::Matrix3d::Identity());
-Eigen::Matrix<double, DIMU, DIMU> I_imu(Eigen::Matrix<double, DIMU, DIMU>::Identity());
+const Eigen::Matrix3d I33 = Eigen::Matrix3d::Identity();
+const Eigen::Matrix<double, DIMU, DIMU> I_imu = Eigen::Matrix<double, DIMU, DIMU>::Identity();
+
+inline double get_time_sec() {
+  auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return std::chrono::duration<double>(now).count();
+}
 
 class VOXEL_LOC
 {

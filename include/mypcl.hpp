@@ -5,6 +5,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <set>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <Eigen/Dense>
@@ -163,6 +164,22 @@ namespace mypcl
     file.close();
   }
 
+  inline void write_pose_file(const std::vector<pose>& pose_vec, const std::string& filepath)
+  {
+    std::ofstream file(filepath, std::ofstream::trunc);
+    if (!file.is_open()) return;
+    for(size_t i = 0; i < pose_vec.size(); i++)
+    {
+      file << pose_vec[i].t(0) << " "
+           << pose_vec[i].t(1) << " "
+           << pose_vec[i].t(2) << " "
+           << pose_vec[i].q.w() << " " << pose_vec[i].q.x() << " "
+           << pose_vec[i].q.y() << " " << pose_vec[i].q.z();
+      if(i < pose_vec.size()-1) file << "\n";
+    }
+    file.close();
+  }
+
   void writeEVOPose(std::vector<double>& lidar_times, std::vector<pose>& pose_vec, std::string path)
   {
     std::ofstream file;
@@ -176,6 +193,84 @@ namespace mypcl
       if(i < pose_vec.size()-1) file << "\n";
     }
     file.close();
+  }
+
+  inline bool load_glim_submap(const std::string& submap_dir,
+                               pcl::PointCloud<PointType>& cloud,
+                               pose& submap_pose,
+                               double& timestamp)
+  {
+    std::string data_path = submap_dir + "/data.txt";
+    std::string pts_path = submap_dir + "/points_compact.bin";
+
+    std::ifstream df(data_path);
+    if (!df.is_open()) return false;
+
+    std::string line;
+    bool found_matrix = false;
+    Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+    timestamp = 0.0;
+
+    while (std::getline(df, line)) {
+      if (line.find("stamp:") != std::string::npos && timestamp == 0.0) {
+        std::stringstream ss(line.substr(line.find(":") + 1));
+        ss >> timestamp;
+      }
+      if (line.find("T_world_origin:") != std::string::npos) {
+        found_matrix = true;
+        for (int r = 0; r < 4; ++r) {
+          if (!std::getline(df, line)) break;
+          std::stringstream ss(line);
+          for (int c = 0; c < 4; ++c) {
+            ss >> T(r, c);
+          }
+        }
+      }
+    }
+    df.close();
+
+    if (!found_matrix) return false;
+
+    Eigen::Matrix3d R = T.block<3, 3>(0, 0);
+    submap_pose.q = Eigen::Quaterniond(R).normalized();
+    submap_pose.t = T.block<3, 1>(0, 3);
+
+    std::ifstream pf(pts_path, std::ios::binary);
+    if (!pf.is_open()) return false;
+
+    pf.seekg(0, std::ios::end);
+    size_t file_size = pf.tellg();
+    pf.seekg(0, std::ios::beg);
+
+    size_t num_points = file_size / (3 * sizeof(float));
+    std::vector<float> buffer(num_points * 3);
+    pf.read(reinterpret_cast<char*>(buffer.data()), file_size);
+    pf.close();
+
+    cloud.resize(num_points);
+    for (size_t i = 0; i < num_points; ++i) {
+      cloud.points[i].x = buffer[i * 3 + 0];
+      cloud.points[i].y = buffer[i * 3 + 1];
+      cloud.points[i].z = buffer[i * 3 + 2];
+    }
+    return true;
+  }
+
+  inline void write_tum_trajectory(const std::vector<pose>& pose_vec,
+                                  const std::vector<double>& stamps,
+                                  const std::string& filepath)
+  {
+    std::ofstream f(filepath, std::ofstream::trunc);
+    f << std::fixed;
+    for (size_t i = 0; i < pose_vec.size(); ++i) {
+      double t = (i < stamps.size() && stamps[i] > 0) ? stamps[i] : static_cast<double>(i) * 0.1;
+      f << std::setprecision(6) << t << " "
+        << std::setprecision(6)
+        << pose_vec[i].t.x() << " " << pose_vec[i].t.y() << " " << pose_vec[i].t.z() << " "
+        << pose_vec[i].q.x() << " " << pose_vec[i].q.y() << " " << pose_vec[i].q.z() << " "
+        << pose_vec[i].q.w() << "\n";
+    }
+    f.close();
   }
 }
 

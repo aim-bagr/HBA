@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+bin/
+lib/
+*.o
+*.so
+*.a
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local results & logs
+results/
+*.log
+.vscode/
+.idea/

@@ -7,23 +7,27 @@
 #include <Eigen/Sparse>
 #include <Eigen/Eigenvalues>
 #include <Eigen/SparseCholesky>
+#ifdef ENABLE_RVIZ
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
+#endif
 
 #include "tools.hpp"
 
 #define WIN_SIZE 10
 #define GAP 5
 #define AVG_THR
+#ifndef FULL_HESS
 #define FULL_HESS
+#endif
 // #define ENABLE_RVIZ
 // #define ENABLE_FILTER
 
 const double one_three = (1.0 / 3.0);
 
-int layer_limit = 2;
-int MIN_PT = 15;
-int thd_num = 16;
+inline int layer_limit = 2;
+inline int MIN_PT = 15;
+inline int thd_num = 16;
 
 class VOX_HESS
 {
@@ -649,15 +653,15 @@ public:
     {
       if(is_calc_hess)
       {
-        double tm = ros::Time::now().toSec();
+        double tm = get_time_sec();
         residual1 = divide_thread(x_stats, voxhess, x_ab, Hess, JacT);
-        hesstime += ros::Time::now().toSec() - tm;
+        hesstime += get_time_sec() - tm;
       }
 
-      double tm = ros::Time::now().toSec();
+      double tm = get_time_sec();
       D.diagonal() = Hess.diagonal();
       HessuD = Hess + u*D;
-      double t1 = ros::Time::now().toSec();
+      double t1 = get_time_sec();
       Eigen::SparseMatrix<double> A1_sparse(jac_leng, jac_leng);
       std::vector<Eigen::Triplet<double>> tripletlist;
       for(int a = 0; a < jac_leng; a++)
@@ -676,7 +680,7 @@ public:
       dxi = Solver_sparse.solve(-JacT);
       temp_mem = check_mem();
       if(temp_mem > max_mem) max_mem = temp_mem;
-      solvtime += ros::Time::now().toSec() - tm;
+      solvtime += get_time_sec() - tm;
       // new_dxi = Solver_sparse.solve(-JacT);
       // printf("new solve time cost %f\n",ros::Time::now().toSec() - t1);
       // relative_err = ((Hess + u*D)*dxi + JacT).norm()/JacT.norm();
