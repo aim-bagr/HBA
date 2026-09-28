@@ -100,6 +100,7 @@ class ProcessManager:
                 continue
             traj_b = (entry / "poses_keyframes_input.txt").exists() or (entry / "trajectory_tum_before.txt").exists()
             traj_a = (entry / "poses_keyframes_refined.txt").exists() or (entry / "trajectory_tum_after.txt").exists()
+            traj_dense = (entry / "trajectory_lidar_refined.txt").exists()
             maps = (entry / "map_before.pcd").exists() and (entry / "map_after.pcd").exists()
             
             submaps_count = 0
@@ -123,6 +124,7 @@ class ProcessManager:
                 submaps_count=submaps_count,
                 has_before_traj=traj_b,
                 has_after_traj=traj_a,
+                has_dense_traj=traj_dense,
                 has_maps=maps,
                 residual_reduction_pct=res_reduction,
                 elapsed_sec=elapsed,

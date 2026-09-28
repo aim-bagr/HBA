@@ -13,10 +13,12 @@ let submapObjectsBefore = new Map(); // submapId -> THREE.Points
 let submapObjectsAfter = new Map();  // submapId -> THREE.Points
 let trajLineBefore = null;
 let trajLineAfter = null;
+let trajLineDense = null;
 let activeMarker = null;
 
 let isMapVisible = true;
 let isTrajVisible = true;
+let isDenseTrajVisible = false;
 let pointSize = 2.0;
 let activeSubmapId = 0;
 let isIsolated = false;
@@ -61,6 +63,7 @@ const modeOverlayBtn = document.getElementById('mode-overlay-btn');
 
 const toggleMap = document.getElementById('toggle-map');
 const toggleTraj = document.getElementById('toggle-traj');
+const toggleDenseTraj = document.getElementById('toggle-dense-traj');
 const paramPtSize = document.getElementById('param-pt-size');
 const btnViewTop = document.getElementById('btn-view-top');
 const btnViewIso = document.getElementById('btn-view-iso');
@@ -334,6 +337,12 @@ function setupUIEvents() {
     if (trajLineBefore) trajLineBefore.visible = isTrajVisible && (comparisonMode === 'before' || comparisonMode === 'overlay');
     if (trajLineAfter) trajLineAfter.visible = isTrajVisible && (comparisonMode === 'after' || comparisonMode === 'overlay');
   });
+  if (toggleDenseTraj) {
+    toggleDenseTraj.addEventListener('change', (e) => {
+      isDenseTrajVisible = e.target.checked;
+      if (trajLineDense) trajLineDense.visible = isDenseTrajVisible;
+    });
+  }
 
   paramPtSize.addEventListener('input', (e) => {
     pointSize = parseFloat(e.target.value);
@@ -402,6 +411,7 @@ function updateVisibility() {
 
   if (trajLineBefore) trajLineBefore.visible = isTrajVisible && showBefore;
   if (trajLineAfter) trajLineAfter.visible = isTrajVisible && showAfter;
+  if (trajLineDense) trajLineDense.visible = isDenseTrajVisible;
 }
 
 function updateActiveSubmap() {
@@ -493,6 +503,7 @@ async function refreshHbaRuns() {
             <span class="text-emerald-400 font-medium">-${r.residual_reduction_pct.toFixed(1)}% res</span>
             <span>•</span>
             <span>${r.elapsed_sec.toFixed(1)}s</span>
+            ${r.has_dense_traj ? '<span>•</span><span class="text-cyan-400 font-medium">20Hz LiDAR</span>' : ''}
           </div>
         </div>
         <button class="px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 rounded text-[11px] font-medium transition" onclick="loadHbaRun('${r.name}')">
@@ -524,6 +535,7 @@ async function loadHbaRun(runName) {
 
   if (trajLineBefore) { threeScene.remove(trajLineBefore); trajLineBefore = null; }
   if (trajLineAfter) { threeScene.remove(trajLineAfter); trajLineAfter = null; }
+  if (trajLineDense) { threeScene.remove(trajLineDense); trajLineDense = null; }
 
   // Load Submaps Metadata
   const smRes = await fetch(`/api/runs/${encodeURIComponent(runName)}/submaps`);
@@ -538,6 +550,7 @@ async function loadHbaRun(runName) {
   // Load Trajectories
   loadTrajectory(runName, false); // Before
   loadTrajectory(runName, true);  // After
+  loadDenseTrajectory(runName);   // Dense (20Hz LiDAR)
 
   // Center camera on dataset bounding box
   if (currentSubmaps.length > 0) {
@@ -584,6 +597,44 @@ async function loadTrajectory(runName, isAfter) {
     else trajLineBefore = line;
 
     updateVisibility();
+  } catch (e) {}
+}
+
+async function loadDenseTrajectory(runName) {
+  try {
+    const res = await fetch(`/api/runs/${encodeURIComponent(runName)}/trajectory?dense=true`);
+    if (!res.ok) {
+      if (toggleDenseTraj) {
+        toggleDenseTraj.disabled = true;
+        toggleDenseTraj.checked = false;
+        toggleDenseTraj.parentElement.classList.add('opacity-40');
+      }
+      return;
+    }
+    if (toggleDenseTraj) {
+      toggleDenseTraj.disabled = false;
+      toggleDenseTraj.parentElement.classList.remove('opacity-40');
+    }
+    const text = await res.text();
+    const lines = text.trim().split('\n');
+
+    const points = [];
+    lines.forEach(l => {
+      const parts = l.trim().split(/\s+/);
+      if (parts.length >= 8) {
+        points.push(new THREE.Vector3(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])));
+      }
+    });
+
+    if (points.length < 2) return;
+
+    const geom = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 2 }); // Cyan (dense 20Hz LiDAR)
+    const line = new THREE.Line(geom, mat);
+
+    threeScene.add(line);
+    trajLineDense = line;
+    trajLineDense.visible = isDenseTrajVisible;
   } catch (e) {}
 }
 

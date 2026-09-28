@@ -6,6 +6,8 @@
 #include <vector>
 #include <string>
 #include <set>
+#include <algorithm>
+#include <sstream>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <Eigen/Dense>
@@ -271,6 +273,102 @@ namespace mypcl
         << pose_vec[i].q.w() << "\n";
     }
     f.close();
+  }
+
+  struct tum_pose {
+    double stamp;
+    Eigen::Vector3d t;
+    Eigen::Quaterniond q;
+  };
+
+  inline std::vector<tum_pose> read_tum_trajectory(const std::string& filepath) {
+    std::vector<tum_pose> poses;
+    std::ifstream f(filepath);
+    if (!f.is_open()) return poses;
+
+    std::string line;
+    while (std::getline(f, line)) {
+      if (line.empty() || line[0] == '#') continue;
+      std::stringstream ss(line);
+      tum_pose p;
+      double qx, qy, qz, qw;
+      if (ss >> p.stamp >> p.t.x() >> p.t.y() >> p.t.z() >> qx >> qy >> qz >> qw) {
+        p.q = Eigen::Quaterniond(qw, qx, qy, qz).normalized();
+        poses.push_back(p);
+      }
+    }
+    f.close();
+    return poses;
+  }
+
+  inline void refine_dense_trajectory(const std::vector<tum_pose>& dense_poses,
+                                     const std::vector<pose>& keyframes_input,
+                                     const std::vector<pose>& keyframes_refined,
+                                     const std::vector<double>& keyframe_stamps,
+                                     const std::string& output_path)
+  {
+    if (dense_poses.empty() || keyframes_input.empty() || keyframes_input.size() != keyframes_refined.size()) {
+      return;
+    }
+
+    size_t num_kf = keyframes_input.size();
+    // Precompute delta transforms for each keyframe: Delta_T = T_refined * T_input^{-1}
+    std::vector<Eigen::Quaterniond> delta_q(num_kf);
+    std::vector<Eigen::Vector3d> delta_t(num_kf);
+
+    for (size_t k = 0; k < num_kf; ++k) {
+      Eigen::Matrix3d R_in = keyframes_input[k].q.toRotationMatrix();
+      Eigen::Vector3d t_in = keyframes_input[k].t;
+      Eigen::Matrix3d R_ref = keyframes_refined[k].q.toRotationMatrix();
+      Eigen::Vector3d t_ref = keyframes_refined[k].t;
+
+      Eigen::Matrix3d delta_R = R_ref * R_in.transpose();
+      delta_q[k] = Eigen::Quaterniond(delta_R).normalized();
+      delta_t[k] = t_ref - delta_R * t_in;
+    }
+
+    std::ofstream ofs(output_path, std::ofstream::trunc);
+    ofs << std::fixed;
+
+    size_t k_cursor = 0;
+    for (size_t i = 0; i < dense_poses.size(); ++i) {
+      double t = dense_poses[i].stamp;
+      Eigen::Quaterniond cur_delta_q;
+      Eigen::Vector3d cur_delta_t;
+
+      if (t <= keyframe_stamps.front()) {
+        cur_delta_q = delta_q.front();
+        cur_delta_t = delta_t.front();
+      } else if (t >= keyframe_stamps.back()) {
+        cur_delta_q = delta_q.back();
+        cur_delta_t = delta_t.back();
+      } else {
+        // Advance cursor until keyframe_stamps[k_cursor+1] > t
+        while (k_cursor + 1 < num_kf && keyframe_stamps[k_cursor + 1] <= t) {
+          k_cursor++;
+        }
+        size_t k0 = k_cursor;
+        size_t k1 = std::min(k0 + 1, num_kf - 1);
+        double t0 = keyframe_stamps[k0];
+        double t1 = keyframe_stamps[k1];
+        double dt = t1 - t0;
+        double alpha = (dt > 1e-6) ? (t - t0) / dt : 0.0;
+        alpha = std::clamp(alpha, 0.0, 1.0);
+
+        cur_delta_q = delta_q[k0].slerp(alpha, delta_q[k1]).normalized();
+        cur_delta_t = (1.0 - alpha) * delta_t[k0] + alpha * delta_t[k1];
+      }
+
+      // Apply delta transform to raw dense pose: T_ref = Delta_T * T_raw
+      Eigen::Quaterniond q_refined = (cur_delta_q * dense_poses[i].q).normalized();
+      Eigen::Vector3d t_refined = cur_delta_q * dense_poses[i].t + cur_delta_t;
+
+      ofs << std::setprecision(6) << t << " "
+          << t_refined.x() << " " << t_refined.y() << " " << t_refined.z() << " "
+          << q_refined.x() << " " << q_refined.y() << " " << q_refined.z() << " "
+          << q_refined.w() << "\n";
+    }
+    ofs.close();
   }
 }
 

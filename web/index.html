@@ -144,9 +144,13 @@
           <input type="checkbox" id="toggle-map" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
           <span>Map</span>
         </label>
-        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300">
+        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300" title="Keyframe trajectory (input/refined)">
           <input type="checkbox" id="toggle-traj" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
-          <span>Trajectory</span>
+          <span>Keyframes</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300" title="Dense 20Hz refined LiDAR trajectory">
+          <input type="checkbox" id="toggle-dense-traj" class="rounded bg-slate-900 border-slate-700 text-cyan-400 focus:ring-0">
+          <span class="flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>Dense (20Hz)</span>
         </label>
         <div class="flex items-center gap-1">
           <span class="text-slate-500">Pt Size:</span>

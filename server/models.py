@@ -48,6 +48,7 @@ class HBARunSummary(BaseModel):
     submaps_count: int
     has_before_traj: bool
     has_after_traj: bool
+    has_dense_traj: bool = False
     has_maps: bool
     residual_reduction_pct: float
     elapsed_sec: float

@@ -62,16 +62,18 @@ async def get_logs():
     return {"lines": manager.log_history}
 
 @app.get("/api/runs/{run_name}/trajectory")
-async def get_run_trajectory(run_name: str, opt: bool = True):
+async def get_run_trajectory(run_name: str, opt: bool = True, dense: bool = False):
     run_dir = manager.hba_results_dir / run_name
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail="Run directory not found")
 
-    candidates = (
-        ["poses_keyframes_refined.txt", "trajectory_tum_after.txt"]
-        if opt
-        else ["poses_keyframes_input.txt", "trajectory_tum_before.txt"]
-    )
+    if dense:
+        candidates = ["trajectory_lidar_refined.txt"]
+    elif opt:
+        candidates = ["poses_keyframes_refined.txt", "trajectory_tum_after.txt"]
+    else:
+        candidates = ["poses_keyframes_input.txt", "trajectory_tum_before.txt"]
+
     file_path = None
     for cand_name in candidates:
         p = run_dir / cand_name

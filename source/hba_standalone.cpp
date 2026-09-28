@@ -523,11 +523,23 @@ int main(int argc, char** argv)
   std::vector<mypcl::pose> init_poses;
   std::vector<pcl::PointCloud<PointType>::Ptr> init_clouds;
   std::vector<double> timestamps;
+  std::vector<mypcl::tum_pose> dense_poses;
 
   auto t_start = std::chrono::steady_clock::now();
 
   // 1. Ingest Data
   if (!opt.glim_dir.empty()) {
+    std::string dense_path = opt.glim_dir + "/traj_lidar.txt";
+    if (!fs::exists(dense_path)) {
+      std::cerr << "Error: Required dense trajectory not found: " << dense_path << "\n";
+      return 1;
+    }
+    dense_poses = mypcl::read_tum_trajectory(dense_path);
+    if (dense_poses.empty()) {
+      std::cerr << "Error: Failed to read dense trajectory from: " << dense_path << "\n";
+      return 1;
+    }
+    std::cout << "[loader] Found " << dense_poses.size() << " dense LiDAR poses in " << dense_path << std::endl;
     std::cout << "[loader] Loading GLIM submaps from: " << opt.glim_dir << std::endl;
     std::vector<std::string> submap_dirs;
     for (const auto& entry : fs::directory_iterator(opt.glim_dir)) {
@@ -652,12 +664,19 @@ int main(int argc, char** argv)
   mypcl::write_tum_trajectory(final_poses, timestamps, opt.output_dir + "/poses_keyframes_refined.txt");
   mypcl::write_pose_file(final_poses, opt.output_dir + "/poses_keyframes_refined.json");
 
+  // 7. Write Dense Refined Trajectory
+  if (!dense_poses.empty()) {
+    std::string dense_output_path = opt.output_dir + "/trajectory_lidar_refined.txt";
+    std::cout << "[trajectory] Refining " << dense_poses.size() << " dense LiDAR poses -> " << dense_output_path << std::endl;
+    mypcl::refine_dense_trajectory(dense_poses, init_poses, final_poses, timestamps, dense_output_path);
+  }
+
   auto t_end = std::chrono::steady_clock::now();
   double total_sec = std::chrono::duration<double>(t_end - t_start).count();
 
   double res_drop_pct = (init_residual > 1e-6) ? (init_residual - final_residual) / init_residual * 100.0 : 0.0;
 
-  // 7. Optional MME and Merged Maps
+  // 8. Optional MME and Merged Maps
   double mme_before = 0.0, mme_after = 0.0;
   if (opt.calc_mme) {
     std::cout << "[metrics] Computing Mean Map Entropy (MME) before HBA...\n";
@@ -682,12 +701,13 @@ int main(int argc, char** argv)
     std::cout << "[maps] Maps saved successfully to " << opt.output_dir << "\n";
   }
 
-  // 8. Write summary.json
+  // 9. Write summary.json
   std::string dataset_path = !opt.glim_dir.empty() ? opt.glim_dir : opt.input_dir;
   std::ofstream sum_file(opt.output_dir + "/summary.json");
   sum_file << "{\n"
            << "  \"dataset_path\": \"" << dataset_path << "\",\n"
            << "  \"num_scans\": " << num_scans << ",\n"
+           << "  \"dense_poses_count\": " << dense_poses.size() << ",\n"
            << "  \"total_layers\": " << effective_layers << ",\n"
            << "  \"threads\": " << opt.thread_num << ",\n"
            << "  \"initial_residual\": " << init_residual << ",\n"
@@ -705,8 +725,11 @@ int main(int argc, char** argv)
             << "% | elapsed=" << std::setprecision(2) << total_sec << "s\n"
             << "Results saved to: " << opt.output_dir << "\n"
             << "  - poses_keyframes_input.txt\n"
-            << "  - poses_keyframes_refined.txt\n"
-            << "  - poses_keyframes_input.json\n"
+            << "  - poses_keyframes_refined.txt\n";
+  if (!dense_poses.empty()) {
+    std::cout << "  - trajectory_lidar_refined.txt\n";
+  }
+  std::cout << "  - poses_keyframes_input.json\n"
             << "  - poses_keyframes_refined.json\n"
             << "  - summary.json\n"
             << "========================================================\n";
