@@ -7,8 +7,6 @@
 #include <Eigen/Sparse>
 #include <Eigen/Eigenvalues>
 #include <Eigen/SparseCholesky>
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/MarkerArray.h>
 
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/PriorFactor.h>
@@ -156,6 +154,39 @@ public:
     printf("HBA init done!\n");
   }
 
+  HBA(int total_layer_num_, const std::vector<mypcl::pose>& init_poses,
+      const std::vector<pcl::PointCloud<PointType>::Ptr>& init_pcds, int thread_num_)
+  {
+    total_layer_num = total_layer_num_;
+    thread_num = thread_num_;
+    data_path = "";
+
+    layers.resize(total_layer_num);
+    for(int i = 0; i < total_layer_num; i++)
+    {
+      layers[i].layer_num = i+1;
+      layers[i].thread_num = thread_num;
+    }
+    layers[0].data_path = "";
+    layers[0].pose_vec = init_poses;
+    layers[0].pcds.resize(init_pcds.size());
+    for(size_t i = 0; i < init_pcds.size(); i++)
+      layers[0].pcds[i] = init_pcds[i]->makeShared();
+
+    layers[0].init_parameter();
+    layers[0].init_storage(total_layer_num);
+
+    for(int i = 1; i < total_layer_num; i++)
+    {
+      int pose_size_ = (layers[i-1].thread_num-1)*layers[i-1].part_length;
+      pose_size_ += layers[i-1].tail == 0 ? layers[i-1].left_gap_num : (layers[i-1].left_gap_num+1);
+      layers[i].init_parameter(pose_size_);
+      layers[i].init_storage(total_layer_num);
+      layers[i].data_path = "";
+    }
+    printf("HBA in-memory init done! Scans: %zu\n", init_poses.size());
+  }
+
   void update_next_layer_state(int cur_layer_num)
   {
     for(int i = 0; i < layers[cur_layer_num].thread_num; i++)
@@ -173,7 +204,7 @@ public:
         }
   }
 
-  void pose_graph_optimization()
+  std::vector<mypcl::pose> pose_graph_optimization(bool zero_origin = false, const std::string& save_path = "")
   {
     std::vector<mypcl::pose> upper_pose, init_pose;
     upper_pose = layers[total_layer_num-1].pose_vec;
@@ -203,7 +234,7 @@ public:
             if(i+j+1 >= init_pose.size() || i+k >= init_pose.size()) break;
 
             cnt++;
-            if(init_cov[cnt-1].norm() < 1e-20) continue;
+            if(cnt-1 >= (int)init_cov.size() || init_cov[cnt-1].norm() < 1e-20) continue;
 
             Eigen::Vector3d t_ab = init_pose[i+j].t;
             Eigen::Matrix3d R_ab = init_pose[i+j].q.toRotationMatrix();
@@ -223,11 +254,16 @@ public:
 
     int pose_size = upper_pose.size();
     cnt = 0;
+    size_t step = static_cast<size_t>(std::pow(GAP, total_layer_num-1));
     for(int i = 0; i < pose_size-1; i++)
       for(int j = i+1; j < pose_size; j++)
       {
         cnt++;
-        if(upper_cov[cnt-1].norm() < 1e-20) continue;
+        if(cnt-1 >= (int)upper_cov.size() || upper_cov[cnt-1].norm() < 1e-20) continue;
+
+        size_t idx_i = i * step;
+        size_t idx_j = j * step;
+        if(idx_i >= init_pose.size() || idx_j >= init_pose.size()) continue;
 
         Eigen::Vector3d t_ab = upper_pose[i].t;
         Eigen::Matrix3d R_ab = upper_pose[i].q.toRotationMatrix();
@@ -239,8 +275,7 @@ public:
         Vector6 << fabs(1.0/upper_cov[cnt-1](0)), fabs(1.0/upper_cov[cnt-1](1)), fabs(1.0/upper_cov[cnt-1](2)),
                    fabs(1.0/upper_cov[cnt-1](3)), fabs(1.0/upper_cov[cnt-1](4)), fabs(1.0/upper_cov[cnt-1](5));
         gtsam::noiseModel::Diagonal::shared_ptr odometryNoise = gtsam::noiseModel::Diagonal::Variances(Vector6);
-        gtsam::NonlinearFactor::shared_ptr factor(new gtsam::BetweenFactor<gtsam::Pose3>(i*pow(GAP, total_layer_num-1),
-                                                  j*pow(GAP, total_layer_num-1), gtsam::Pose3(R_sam, t_sam), odometryNoise));
+        gtsam::NonlinearFactor::shared_ptr factor(new gtsam::BetweenFactor<gtsam::Pose3>(idx_i, idx_j, gtsam::Pose3(R_sam, t_sam), odometryNoise));
         graph.push_back(factor);
       }
 
@@ -253,15 +288,31 @@ public:
 
     gtsam::Values results = isam.calculateEstimate();
 
-    cout << "vertex size " << results.size() << endl;
+    std::cout << "[pgo] Factor graph vertex size: " << results.size() << std::endl;
 
     for(uint i = 0; i < results.size(); i++)
     {
+      if(i >= init_pose.size()) break;
       gtsam::Pose3 pose = results.at(i).cast<gtsam::Pose3>();
       assign_qt(init_pose[i].q, init_pose[i].t, Eigen::Quaterniond(pose.rotation().matrix()), pose.translation());
     }
-    mypcl::write_pose(init_pose, data_path);
-    printf("pgo complete\n");
+
+    if (zero_origin && !init_pose.empty()) {
+      Eigen::Quaterniond q0 = init_pose[0].q;
+      Eigen::Vector3d t0 = init_pose[0].t;
+      for(size_t i = 0; i < init_pose.size(); ++i) {
+        init_pose[i].t = q0.inverse() * (init_pose[i].t - t0);
+        init_pose[i].q = q0.inverse() * init_pose[i].q;
+      }
+    }
+
+    layers[0].pose_vec = init_pose;
+
+    if (!save_path.empty()) {
+      mypcl::write_pose(init_pose, save_path);
+    }
+    printf("[pgo] Pose graph optimization complete\n");
+    return init_pose;
   }
 };
 

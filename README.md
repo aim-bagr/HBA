@@ -87,3 +87,43 @@ In the development of **HBA**, we stand on the state-of-the-art work: [BALM2](ht
 The source code is released under [GPLv2](LICENSE) license.
 
 We are still working on improving the performance and reliability of our codes. For any technical issues, please contact us via email xliuaa@connect.hku.hk. For commercial use, please contact Dr. Fu Zhang fuzhang@hku.hk.
+
+---
+
+## **7. Standalone & Web Studio Mode (Zero ROS Dependency)**
+
+HBA has been modernized into a standalone mapping optimization engine and visual analytics suite conforming to [STANDALONE_SLAM_RUNBOOK.md](../STANDALONE_SLAM_RUNBOOK.md):
+- **Downstream Architecture**: Operates directly on point cloud frames and initial poses. Supports raw GLIM binary submaps (`points_compact.bin` + `data.txt`) or standard PCD directories.
+- **Zero ROS Dependency**: Pure C++17 core leveraging Eigen, PCL, and GTSAM.
+- **Dockerized Zero-Host Mutation**: Runs out-of-the-box via `./run_hba.sh` with GPU acceleration and UID/GID mapping.
+- **Web Studio & Dual-Layer Visualizer**: A full-featured web dashboard (FastAPI + Three.js) with real-time console streaming and interactive Before vs. After 3D comparison.
+
+### 7.1 Quick Start: Web Studio & Visualizer
+Launch the interactive web interface:
+```bash
+./run_hba.sh --web 8081
+```
+Open **[http://localhost:8081](http://localhost:8081)** in your browser:
+- **One-Click Run Launcher**: Automatically detects GLIM runs in `~/data/glim_results/` and configures optimization parameters.
+- **Dual-Layer 3D Comparison**: Compare Before (🔴 warm gradient) vs. After (🟢 cool gradient), or toggle Overlay mode to inspect residual alignment.
+- **Real-Time Progress & Console**: Streams hierarchical layer optimization progress, residual drops, and GTSAM pose graph convergence via WebSocket.
+- **Submap Scrubber & Isolation**: Step through or playback individual submaps along the trajectory.
+
+### 7.2 Headless CLI Execution
+Run directly on GLIM output:
+```bash
+./run_hba.sh --glim ~/data/glim_results/aimbag -o ~/data/hba_results/aimbag_refined --save-maps
+```
+
+Run on a standard PCD dataset:
+```bash
+./run_hba.sh --input ~/data/kitti07 -o ~/data/hba_results/kitti07_refined --save-maps
+```
+
+### 7.3 Output Artifacts
+Every optimization run writes standard outputs to the target directory:
+- `poses_keyframes_input.txt`: Sparse keyframe poses prior to HBA in standard TUM format (`stamp x y z qx qy qz qw`).
+- `poses_keyframes_refined.txt`: Sparse keyframe poses refined by HBA in standard TUM format (`stamp x y z qx qy qz qw`).
+- `poses_keyframes_input.json` & `poses_keyframes_refined.json`: 6-DoF keyframe poses (`tx ty tz qw qx qy qz`).
+- `summary.json`: Detailed execution metrics (residual reduction percentage, initial/final residuals, elapsed time).
+- `map_before.pcd` & `map_after.pcd` (when `--save-maps` is specified): Full merged global point cloud maps.

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HBA Studio - Hierarchical Bundle Adjustment</title>
+  <!-- Tailwind CSS & Lucide Icons via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#10b981', 600: '#059669' }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 h-screen w-screen overflow-hidden font-sans antialiased select-none">
+
+  <!-- ========================================================================= -->
+  <!-- 1. FULLSCREEN 3D VIEWPORT CANVAS                                          -->
+  <!-- ========================================================================= -->
+  <div id="viewport-3d" class="fixed inset-0 w-screen h-screen z-0 overflow-hidden bg-slate-950">
+    <div id="viewport-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none select-none">
+      <i data-lucide="layers" class="w-12 h-12 mb-3 text-emerald-600/60 animate-pulse"></i>
+      <span class="text-sm font-medium text-slate-300">HBA 3D Dual-Layer Viewport</span>
+      <span class="text-xs text-slate-500 mt-1">Select an HBA run or launch a new optimization to compare Input vs Refined Keyframes</span>
+    </div>
+
+    <!-- Controls Hint -->
+    <div class="absolute top-16 right-4 text-[10px] text-slate-400 font-mono bg-slate-950/80 border border-slate-800 px-2.5 py-1.5 rounded-lg select-none pointer-events-none backdrop-blur shadow-md">
+      Orbit: Left Drag | Pan: Right Drag | Zoom: Scroll
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 2. TOP HEADER & STATUS BAR                                                -->
+  <!-- ========================================================================= -->
+  <header class="fixed top-0 inset-x-0 z-30 h-14 bg-slate-950/85 backdrop-blur-md border-b border-slate-800/80 px-4 flex items-center justify-between shadow-lg">
+    <!-- Left: Branding & Trigger Buttons -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <div class="h-8 w-8 rounded-lg bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-sm tracking-wider">
+          HBA
+        </div>
+        <span class="font-bold text-sm text-white tracking-tight hidden sm:inline">HBA Studio</span>
+      </div>
+
+      <!-- Service Status Badge -->
+      <div id="service-status-badge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border bg-slate-900 border-slate-800 text-slate-300">
+        <span id="status-dot" class="h-2 w-2 rounded-full bg-slate-500"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-3">
+        <button id="toggle-launcher-btn" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white flex items-center gap-1.5 transition shadow-sm">
+          <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+          <span>Launch HBA</span>
+        </button>
+        <button id="toggle-runs-btn" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+          <i data-lucide="folder-clock" class="w-3.5 h-3.5 text-blue-400"></i>
+          <span>Runs</span>
+        </button>
+        <button id="toggle-console-btn" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+          <i data-lucide="terminal" class="w-3.5 h-3.5 text-amber-400"></i>
+          <span>Console</span>
+          <span id="console-badge-count" class="hidden text-[10px] px-1 bg-amber-500/20 text-amber-300 rounded font-mono">0</span>
+        </button>
+        <button id="header-stop-btn" class="hidden px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 flex items-center gap-1.5 transition">
+          <i data-lucide="square" class="w-3.5 h-3.5 fill-current"></i>
+          <span>Stop</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Center: Live Progress KPI Strip -->
+    <div id="progress-hud-strip" class="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-3 py-1 text-xs font-mono shadow-inner">
+      <div class="flex items-center gap-1 text-slate-300">
+        <span class="text-slate-500">Stage:</span>
+        <span id="metric-stage" class="font-bold text-emerald-400">Idle</span>
+      </div>
+      <span class="text-slate-700">•</span>
+      <div class="flex items-center gap-1 text-slate-300">
+        <span class="text-slate-500">Residual:</span>
+        <span id="metric-residual" class="font-bold text-amber-400">--</span>
+      </div>
+      <span class="text-slate-700 hidden sm:inline">•</span>
+      <div class="hidden sm:flex items-center gap-1 text-slate-300">
+        <span class="text-slate-500">Reduction:</span>
+        <span id="metric-drop" class="font-bold text-blue-400">--</span>
+      </div>
+      <span class="text-slate-700 hidden md:inline">•</span>
+      <div class="hidden md:flex items-center gap-1 text-slate-300">
+        <span class="text-slate-500">Elapsed:</span>
+        <span id="metric-elapsed" class="font-bold text-slate-200">0.0s</span>
+      </div>
+    </div>
+
+    <!-- Right: Quick Run Selector -->
+    <div class="flex items-center gap-2">
+      <select id="header-run-select" class="bg-slate-900 border border-slate-800 text-xs rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-emerald-500">
+        <option value="">Select HBA Run...</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- 3. BOTTOM FLOATING COMPARISON CONTROLS HUD                                -->
+  <!-- ========================================================================= -->
+  <div id="viewer-hud" class="fixed bottom-4 inset-x-4 z-20 pointer-events-none flex flex-col items-center gap-2">
+    <!-- Comparison Mode Pill & Trajectory Toggles -->
+    <div class="bg-slate-950/85 backdrop-blur-md border border-slate-800/90 rounded-xl px-4 py-2 pointer-events-auto flex items-center gap-4 shadow-xl text-xs">
+      <!-- Mode Toggle Buttons -->
+      <div class="flex items-center bg-slate-900 border border-slate-800 p-0.5 rounded-lg font-medium">
+        <button id="mode-before-btn" class="px-2.5 py-1 rounded-md transition text-slate-400 hover:text-white flex items-center gap-1.5" title="Show input keyframe poses (poses_keyframes_input)">
+          <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+          <span>Input Keyframes</span>
+        </button>
+        <button id="mode-after-btn" class="px-2.5 py-1 rounded-md transition bg-emerald-600 text-white font-semibold flex items-center gap-1.5 shadow-sm" title="Show HBA refined keyframe poses (poses_keyframes_refined)">
+          <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+          <span>Refined Keyframes</span>
+        </button>
+        <button id="mode-overlay-btn" class="px-2.5 py-1 rounded-md transition text-slate-400 hover:text-white flex items-center gap-1.5" title="Overlay both Input (Red) and Refined (Green) keyframes">
+          <span class="h-2 w-2 rounded-full bg-gradient-to-r from-rose-500 to-emerald-400"></span>
+          <span>Overlay / Diff</span>
+        </button>
+      </div>
+
+      <div class="h-4 w-px bg-slate-800"></div>
+
+      <!-- Point Cloud Controls -->
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300">
+          <input type="checkbox" id="toggle-map" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
+          <span>Map</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300" title="Keyframe trajectory (input/refined)">
+          <input type="checkbox" id="toggle-traj" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0">
+          <span>Keyframes</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer text-slate-300" title="Dense 20Hz refined LiDAR trajectory">
+          <input type="checkbox" id="toggle-dense-traj" class="rounded bg-slate-900 border-slate-700 text-cyan-400 focus:ring-0">
+          <span class="flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>Dense (20Hz)</span>
+        </label>
+        <div class="flex items-center gap-1">
+          <span class="text-slate-500">Pt Size:</span>
+          <input type="range" id="param-pt-size" min="1" max="5" step="0.5" value="2.0" class="w-16 accent-emerald-500 h-1 bg-slate-800 rounded">
+        </div>
+      </div>
+
+      <div class="h-4 w-px bg-slate-800"></div>
+
+      <!-- Camera Views -->
+      <div class="flex items-center gap-1">
+        <button id="btn-view-top" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800" title="Top-down Birds-eye View">Top</button>
+        <button id="btn-view-iso" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800" title="Perspective Reset">Reset</button>
+      </div>
+    </div>
+
+    <!-- Scrubber Slider Bar -->
+    <div id="scrubber-bar" class="w-full max-w-xl bg-slate-950/85 backdrop-blur-md border border-slate-800/90 rounded-xl px-4 py-2 pointer-events-auto flex items-center gap-3 shadow-xl text-xs">
+      <button id="scrubber-play-btn" class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200">
+        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+      </button>
+      <input type="range" id="scrubber-slider" min="0" max="0" value="0" class="flex-1 accent-emerald-500 h-1 bg-slate-800 rounded cursor-pointer">
+      <span id="scrubber-text" class="font-mono text-slate-400 min-w-[70px] text-right">0 / 0</span>
+      <button id="scrubber-isolate-btn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700" title="Isolate active submap only">Isolate</button>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 4. LAUNCHER MODAL DRAWER                                                  -->
+  <!-- ========================================================================= -->
+  <div id="launcher-modal" class="hidden fixed top-16 left-4 z-40 w-96 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div class="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+      <div class="flex items-center gap-2">
+        <i data-lucide="sparkles" class="w-4 h-4 text-emerald-400"></i>
+        <h3 class="text-xs font-bold text-white tracking-wide uppercase">Launch HBA Optimization</h3>
+      </div>
+      <button id="close-launcher-btn" class="text-slate-500 hover:text-slate-300">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <form id="launcher-form" class="p-4 space-y-3.5 overflow-y-auto text-xs">
+      <!-- Input Source Selection -->
+      <div>
+        <label class="block text-slate-400 mb-1 font-medium">Input GLIM Run</label>
+        <select id="input-glim-select" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono text-[11px]">
+          <option value="">Scanning GLIM results...</option>
+        </select>
+        <span class="text-[10px] text-slate-500 mt-1 block">Reads submaps (points_compact.bin + T_world_origin)</span>
+      </div>
+
+      <!-- Custom Output Run Name -->
+      <div>
+        <label class="block text-slate-400 mb-1 font-medium">Run Name (Optional)</label>
+        <input type="text" id="input-run-name" placeholder="e.g. aimbag_refined" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+      </div>
+
+      <!-- HBA Parameters Grid -->
+      <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
+        <div>
+          <label class="block text-slate-400 mb-1 font-medium">Total Layers</label>
+          <input type="number" id="param-layers" value="3" min="1" max="5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-medium">Threads</label>
+          <input type="number" id="param-threads" value="16" min="1" max="64" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-medium">Voxel Size (m)</label>
+          <input type="number" id="param-voxel-size" value="4.0" step="0.5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-medium">Downsample (m)</label>
+          <input type="number" id="param-downsample" value="0.1" step="0.05" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-medium">Plane Threshold</label>
+          <input type="number" id="param-eigen-ratio" value="0.1" step="0.05" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-medium">Max Iterations</label>
+          <input type="number" id="param-max-iter" value="10" min="1" max="30" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+        </div>
+      </div>
+
+      <!-- Flags -->
+      <div class="space-y-1.5 pt-2 border-t border-slate-800/80">
+        <label class="flex items-center gap-2 cursor-pointer text-slate-300">
+          <input type="checkbox" id="flag-save-maps" checked class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
+          <span>Save Point Cloud Maps (.pcd)</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer text-slate-300">
+          <input type="checkbox" id="flag-calc-mme" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
+          <span>Compute Mean Map Entropy (MME)</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer text-slate-300">
+          <input type="checkbox" id="flag-zero-origin" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
+          <span>Re-zero Origin Pose</span>
+        </label>
+      </div>
+
+      <div class="pt-3">
+        <button type="submit" id="start-job-btn" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold rounded-lg shadow transition flex items-center justify-center gap-2">
+          <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+          <span>Run Optimization</span>
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 5. RUNS LIST MODAL DRAWER                                                 -->
+  <!-- ========================================================================= -->
+  <div id="runs-modal" class="hidden fixed top-16 left-4 z-40 w-96 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div class="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+      <div class="flex items-center gap-2">
+        <i data-lucide="folder-clock" class="w-4 h-4 text-blue-400"></i>
+        <h3 class="text-xs font-bold text-white tracking-wide uppercase">Completed HBA Runs</h3>
+      </div>
+      <button id="close-runs-btn" class="text-slate-500 hover:text-slate-300">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <div id="runs-list-container" class="p-3 space-y-2 overflow-y-auto text-xs max-h-[70vh]">
+      <!-- Dynamically Populated -->
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 6. LIVE CONSOLE LOG DRAWER                                                -->
+  <!-- ========================================================================= -->
+  <div id="console-drawer" class="hidden fixed bottom-16 right-4 z-40 w-[540px] bg-slate-950/95 backdrop-blur-md border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[380px]">
+    <div class="p-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+      <div class="flex items-center gap-2">
+        <i data-lucide="terminal" class="w-3.5 h-3.5 text-amber-400"></i>
+        <span class="text-xs font-bold text-slate-200">Optimization Console</span>
+        <span id="log-count" class="text-[10px] text-slate-500 font-mono">0 lines</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="flex items-center gap-1 text-[11px] text-slate-400 cursor-pointer">
+          <input type="checkbox" id="autoscroll-toggle" checked class="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0">
+          <span>Auto-scroll</span>
+        </label>
+        <button id="clear-logs-btn" class="text-slate-500 hover:text-slate-300 p-1" title="Clear logs">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+        </button>
+        <button id="close-console-btn" class="text-slate-500 hover:text-slate-300 p-1">
+          <i data-lucide="x" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+    </div>
+    <div id="log-console" class="flex-1 p-3 font-mono text-[11px] leading-relaxed text-slate-300 overflow-y-auto space-y-0.5 select-text">
+      <!-- Live log lines stream here -->
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
