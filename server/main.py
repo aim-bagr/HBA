@@ -34,6 +34,10 @@ if not web_dir.exists() and Path("./web").exists():
 async def get_status():
     return manager.job.dict()
 
+@app.get("/api/mode")
+async def get_mode():
+    return {"view_mode": manager.view_mode, "view_path": str(manager.view_path) if manager.view_path else None}
+
 @app.get("/api/glim-runs")
 async def get_glim_runs():
     return [r.dict() for r in manager.list_glim_runs()]
@@ -47,6 +51,8 @@ async def start_job(req: HBARunRequest):
     try:
         job = await manager.start_job(req)
         return job.dict()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
@@ -54,7 +60,10 @@ async def start_job(req: HBARunRequest):
 
 @app.post("/api/jobs/stop")
 async def stop_job():
-    job = await manager.stop_job()
+    try:
+        job = await manager.stop_job()
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     return job.dict()
 
 @app.get("/api/jobs/logs")
@@ -63,7 +72,7 @@ async def get_logs():
 
 @app.get("/api/runs/{run_name}/trajectory")
 async def get_run_trajectory(run_name: str, opt: bool = True, dense: bool = False):
-    run_dir = manager.hba_results_dir / run_name
+    run_dir = manager.hba_run_dir(run_name)
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail="Run directory not found")
 
@@ -88,7 +97,7 @@ async def get_run_trajectory(run_name: str, opt: bool = True, dense: bool = Fals
 
 @app.get("/api/runs/{run_name}/summary")
 async def get_run_summary(run_name: str):
-    file_path = manager.hba_results_dir / run_name / "summary.json"
+    file_path = manager.hba_run_dir(run_name) / "summary.json"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Summary not found")
     try:
@@ -99,7 +108,7 @@ async def get_run_summary(run_name: str):
 
 @app.get("/api/runs/{run_name}/files/{filename}")
 async def get_run_file(run_name: str, filename: str):
-    file_path = manager.hba_results_dir / run_name / filename
+    file_path = manager.hba_run_dir(run_name) / filename
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path=str(file_path), filename=filename)
@@ -108,7 +117,9 @@ async def get_run_file(run_name: str, filename: str):
 _submap_metadata_cache = {}
 
 def find_source_dir(run_name: str) -> Optional[Path]:
-    run_dir = manager.hba_results_dir / run_name
+    if manager.view_mode:
+        return manager.view_glim_dir(run_name)
+    run_dir = manager.hba_run_dir(run_name)
     meta_file = run_dir / "input_meta.json"
     if meta_file.exists():
         try:
@@ -161,7 +172,7 @@ async def get_run_submaps(run_name: str):
     if run_name in _submap_metadata_cache:
         return _submap_metadata_cache[run_name]
 
-    run_dir = manager.hba_results_dir / run_name
+    run_dir = manager.hba_run_dir(run_name)
     if not run_dir.exists():
         raise HTTPException(status_code=404, detail="Run not found")
 

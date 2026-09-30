@@ -11,7 +11,7 @@ if ! git -C "$SCRIPT_DIR" diff --quiet HEAD 2>/dev/null; then
   GIT_SHA="${GIT_SHA}-dirty"
 fi
 IMAGE_TAG="${IMAGE_TAG:-$GIT_SHA}"
-IMAGE_NAME="${IMAGE_NAME:-hba:$IMAGE_TAG}"
+IMAGE_NAME="${HBA_IMAGE:-hba:standalone}"
 
 function show_help() {
   cat << 'EOF'
@@ -19,6 +19,8 @@ Usage: ./run_hba.sh [options]
 
 Mode Options:
   --web [port]          Launch HBA Web Studio & 3D Comparison Dashboard (default port: 8081)
+  --view <path>         Read-only studio on a ground-truth store: a gt/ folder, a <name>.gt folder or a runs/<run-id> folder
+                        (must be under DATA_DIR; use --port <n> to change the port, default: 8081)
   --rebuild             Rebuild the docker image before running
   -h, --help            Show this help message
 
@@ -45,6 +47,9 @@ Examples:
   # Launch interactive web studio on port 8081:
   ./run_hba.sh --web 8081
 
+  # Browse stored GLIM/HBA runs read-only:
+  ./run_hba.sh --view ~/data/2026-Sep-Slam-Start/gt --port 8082
+
   # Run headless optimization on GLIM results (uses optimal default):
   ./run_hba.sh --glim ~/data/glim_results/aimbag -o ~/data/hba_results/aimbag_refined --save-maps
 
@@ -63,6 +68,7 @@ mkdir -p "$DATA_DIR"
 
 WEB_MODE=0
 WEB_PORT=8081
+VIEW_PATH=""
 REBUILD=0
 HBA_ARGS=()
 INPUT_DATASET_NAME=""
@@ -77,6 +83,22 @@ while [[ $# -gt 0 ]]; do
       else
         shift
       fi
+      ;;
+    --view)
+      if [[ -z "$2" ]]; then
+        echo "Error: --view requires a path." >&2
+        exit 1
+      fi
+      VIEW_PATH="$2"
+      shift 2
+      ;;
+    --port)
+      if [[ ! "$2" =~ ^[0-9]+$ ]]; then
+        echo "Error: --port requires a number." >&2
+        exit 1
+      fi
+      WEB_PORT="$2"
+      shift 2
       ;;
     --rebuild)
       REBUILD=1
@@ -143,6 +165,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Resolve --view path (must exist and be inside DATA_DIR) to its container path
+if [[ -n "$VIEW_PATH" ]]; then
+  if [[ ! -d "$VIEW_PATH" ]]; then
+    echo "Error: --view path does not exist or is not a directory: $VIEW_PATH" >&2
+    exit 1
+  fi
+  VIEW_ABS="$(cd "$VIEW_PATH" && pwd -P)"
+  DATA_ABS="$(cd "$DATA_DIR" && pwd -P)"
+  if [[ "$VIEW_ABS" != "$DATA_ABS" && "$VIEW_ABS" != "$DATA_ABS"/* ]]; then
+    echo "Error: --view path must be inside DATA_DIR ($DATA_ABS): $VIEW_ABS" >&2
+    exit 1
+  fi
+  VIEW_CONTAINER_PATH="/data${VIEW_ABS#$DATA_ABS}"
+fi
+
 # 1. GPU & TTY Detection
 DOCKER_GPU_FLAGS=""
 if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
@@ -173,7 +210,44 @@ fi
 if [[ -z "$IMAGE_EXISTS" || "$REBUILD" -eq 1 ]]; then
   echo "Building Docker image: $IMAGE_NAME..."
   FULL_GIT_SHA="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")"
-  docker build --build-arg GIT_SHA="$FULL_GIT_SHA" -t "$IMAGE_NAME" -t "hba:standalone" "$SCRIPT_DIR"
+  EXTRA_TAG=(-t "hba:standalone")
+  # A custom HBA_IMAGE must never retag hba:standalone
+  [[ -n "${HBA_IMAGE:-}" ]] && EXTRA_TAG=()
+  docker build --build-arg GIT_SHA="$FULL_GIT_SHA" -t "$IMAGE_NAME" "${EXTRA_TAG[@]}" "$SCRIPT_DIR"
+fi
+
+# 3a. Read-only View Mode (stored results under DATA_DIR)
+if [[ -n "$VIEW_PATH" ]]; then
+  VIEW_CLEAN="$(basename "$VIEW_ABS" | tr -c 'A-Za-z0-9_.\n-' '-')"
+  VIEW_NAME="hba-view-${VIEW_CLEAN}"
+  # Replace only a container with this same name
+  docker rm -f "$VIEW_NAME" >/dev/null 2>&1 || true
+
+  echo "=========================================================="
+  echo "   Launching HBA Web Studio (read-only view mode)         "
+  echo "=========================================================="
+  echo "  Web Interface URL : http://localhost:${WEB_PORT}"
+  echo "  Viewing           : ${VIEW_ABS} -> ${VIEW_CONTAINER_PATH} (read-only)"
+  echo "  Container Name    : ${VIEW_NAME}"
+  echo "  Image Name        : ${IMAGE_NAME}"
+  echo "=========================================================="
+
+  docker run --rm \
+    --name "$VIEW_NAME" \
+    --label slam-eval.tool=hba \
+    --label slam-eval.service=view \
+    --user "$(id -u):$(id -g)" \
+    -e HBA_VIEW_PATH="$VIEW_CONTAINER_PATH" \
+    -p "${WEB_PORT}:${WEB_PORT}" \
+    -v "${DATA_DIR}:/data:ro" \
+    -v "${SCRIPT_DIR}/config:/opt/hba/config:ro" \
+    -v "${SCRIPT_DIR}/web:/opt/hba/web:ro" \
+    -v "${SCRIPT_DIR}/server:/opt/hba/server:ro" \
+    -w /opt/hba \
+    --entrypoint python3 \
+    "$IMAGE_NAME" \
+    -m uvicorn server.main:app --host 0.0.0.0 --port "${WEB_PORT}" --reload
+  exit 0
 fi
 
 # 3. Web Studio Mode

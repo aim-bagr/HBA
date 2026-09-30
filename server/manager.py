@@ -34,9 +34,15 @@ class ProcessManager:
         self.hba_results_dir = self.data_root / "hba_results"
         self.binary_path = Path(binary_path)
 
+        # Read-only view mode: HBA_VIEW_PATH points at a ground-truth store (gt/ folder, <name>.gt or a run folder)
+        view_path = os.environ.get("HBA_VIEW_PATH", "")
+        self.view_path: Optional[Path] = Path(view_path) if view_path else None
+        self.view_mode = self.view_path is not None
+
         try:
-            self.glim_results_dir.mkdir(parents=True, exist_ok=True)
-            self.hba_results_dir.mkdir(parents=True, exist_ok=True)
+            if not self.view_mode:
+                self.glim_results_dir.mkdir(parents=True, exist_ok=True)
+                self.hba_results_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
 
@@ -65,6 +71,57 @@ class ProcessManager:
         for q in dead_queues:
             self.subscribers.discard(q)
 
+    def _view_runs(self) -> Dict[str, dict]:
+        """Discover store runs: {run_key: {"dir": <run dir>, "dataset": str, "manifest": dict}}."""
+        found: Dict[str, dict] = {}
+        root = self.view_path
+        if root is None or not root.is_dir():
+            return found
+
+        def read_json(p: Path) -> dict:
+            try:
+                return json.loads(p.read_text())
+            except Exception:
+                return {}
+
+        def add_run(run_dir: Path, gt_dir: Optional[Path]):
+            dataset = gt_dir.name[:-3] if gt_dir else run_dir.parent.parent.name.removesuffix(".gt")
+            manifest = read_json(gt_dir / "manifest.json") if gt_dir else {}
+            if (run_dir / "hba").is_dir():
+                found[f"{dataset}--{run_dir.name}"] = {"dir": run_dir, "dataset": dataset, "manifest": manifest}
+
+        def add_gt(gt_dir: Path):
+            runs_dir = gt_dir / "runs"
+            if runs_dir.is_dir():
+                for run_dir in sorted(runs_dir.iterdir(), reverse=True):
+                    if run_dir.is_dir():
+                        add_run(run_dir, gt_dir)
+
+        if root.parent.name == "runs":
+            gt_dir = root.parent.parent
+            add_run(root, gt_dir if gt_dir.name.endswith(".gt") else None)
+        elif root.name.endswith(".gt"):
+            add_gt(root)
+        else:
+            for gt_dir in sorted(root.iterdir()):
+                if gt_dir.is_dir() and gt_dir.name.endswith(".gt"):
+                    add_gt(gt_dir)
+        return found
+
+    def hba_run_dir(self, run_name: str) -> Path:
+        """HBA output folder of a run (legacy hba_results/<run> or <store run>/hba)."""
+        if self.view_mode:
+            run = self._view_runs().get(run_name)
+            return run["dir"] / "hba" if run else self.data_root / "__missing__" / run_name
+        return self.hba_results_dir / run_name
+
+    def view_glim_dir(self, run_name: str) -> Optional[Path]:
+        """GLIM output of a store run: the sibling glim/ folder of its hba/ folder."""
+        run = self._view_runs().get(run_name)
+        if run and (run["dir"] / "glim").is_dir():
+            return run["dir"] / "glim"
+        return None
+
     def list_glim_runs(self) -> List[GLIMRunSummary]:
         runs = []
         if not self.glim_results_dir.exists():
@@ -92,12 +149,14 @@ class ProcessManager:
 
     def list_hba_runs(self) -> List[HBARunSummary]:
         runs = []
-        if not self.hba_results_dir.exists():
-            return runs
+        if self.view_mode:
+            entries = [(k, v["dir"] / "hba", v) for k, v in self._view_runs().items()]
+        elif self.hba_results_dir.exists():
+            entries = [(e.name, e, None) for e in sorted(self.hba_results_dir.iterdir(), reverse=True) if e.is_dir()]
+        else:
+            entries = []
 
-        for entry in sorted(self.hba_results_dir.iterdir(), reverse=True):
-            if not entry.is_dir():
-                continue
+        for name, entry, view in entries:
             traj_b = (entry / "poses_keyframes_input.txt").exists() or (entry / "trajectory_tum_before.txt").exists()
             traj_a = (entry / "poses_keyframes_refined.txt").exists() or (entry / "trajectory_tum_after.txt").exists()
             traj_dense = (entry / "trajectory_lidar_refined.txt").exists()
@@ -118,8 +177,26 @@ class ProcessManager:
 
             total_size = sum(f.stat().st_size for f in entry.glob("**/*") if f.is_file())
             st = entry.stat()
+            extra = {}
+            if view:
+                manifest = view["manifest"]
+                images = {}
+                try:
+                    images = json.loads((view["dir"] / "run.json").read_text()).get("images", {})
+                except Exception:
+                    pass
+                tag = lambda tool: (images.get(tool) or {}).get("ref", "").rsplit(":", 1)[-1] or None
+                extra = dict(
+                    dataset=view["dataset"],
+                    run_id=view["dir"].name,
+                    glim_image=tag("glim"),
+                    hba_image=tag("hba"),
+                    selection_source=(manifest.get("selection") or {}).get("source"),
+                    review_status=(manifest.get("review") or {}).get("status"),
+                    selected=manifest.get("selected_run") == view["dir"].name,
+                )
             runs.append(HBARunSummary(
-                name=entry.name,
+                name=name,
                 path=str(entry),
                 submaps_count=submaps_count,
                 has_before_traj=traj_b,
@@ -130,11 +207,14 @@ class ProcessManager:
                 elapsed_sec=elapsed,
                 size_bytes=total_size,
                 size_human=format_bytes(total_size),
-                modified_at=datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                modified_at=datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                **extra
             ))
         return runs
 
     async def start_job(self, req: HBARunRequest) -> HBAJobProgress:
+        if self.view_mode:
+            raise PermissionError("View mode is read-only: starting jobs is disabled.")
         if self.job.state in ["running", "optimizing", "global_ba", "pgo"]:
             raise RuntimeError("An optimization job is already running.")
 
@@ -281,6 +361,8 @@ class ProcessManager:
         await self.broadcast({"type": "progress", "data": self.job.dict()})
 
     async def stop_job(self) -> HBAJobProgress:
+        if self.view_mode:
+            raise PermissionError("View mode is read-only: no jobs to stop.")
         if self.active_process and self.active_process.returncode is None:
             self.job.state = "stopped"
             try:

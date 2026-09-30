@@ -56,3 +56,11 @@ class HBARunSummary(BaseModel):
     size_bytes: int
     size_human: str
     modified_at: str
+    # Store (view mode) info
+    dataset: Optional[str] = None
+    run_id: Optional[str] = None
+    glim_image: Optional[str] = None
+    hba_image: Optional[str] = None
+    selection_source: Optional[str] = None
+    review_status: Optional[str] = None
+    selected: bool = False

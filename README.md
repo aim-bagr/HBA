@@ -86,6 +86,13 @@ To run with the original upstream paper configuration (`--layers 3 --voxel-size 
 ```
 Open **`http://localhost:8081`** in your browser to launch runs, select configuration presets, stream logs, and visually inspect map alignment.
 
+#### Browse stored results read-only (`--view`)
+
+```bash
+./run_hba.sh --view ~/data/2026-Sep-Slam-Start/gt --port 8082
+```
+`--view <path>` opens the studio on a ground-truth store without mounting anything writable (`DATA_DIR` is mounted `:ro`, job start/stop is disabled). `<path>` must be under `DATA_DIR` and may be a collection's `gt/` folder, a single `<name>.gt` folder, or a single `runs/<run-id>` folder (only folders ending in exactly `.gt` are scanned). Each run `<dataset>/runs/<run-id>` is listed as `<dataset>--<run-id>` with its GLIM/HBA image tags and manifest status (selection source / review status); its GLIM output is the sibling `glim/` folder of `hba/`. The container is named `hba-view-<basename>` (an existing one of the same name is replaced). Set `HBA_IMAGE` to use another image tag (default `hba:standalone`).
+
 > [!TIP]
 > Presets are defined in `config/config_default.json` and `config/config_legacy.json`. Run `./run_hba.sh --help` for the full list of optimization parameters, layer limits, voxel sizes, and filtering thresholds.
 
@@ -117,6 +124,7 @@ This repository adheres to the container naming and labeling standard defined in
 | :--- | :--- | :--- |
 | **Batch Optimization** | `hba-<dataset>-<yyyymmdd-hhmm>` | `slam-eval.tool=hba`, `slam-eval.dataset=<name>`, `slam-eval.run-id=<ts>` |
 | **Web Service** | `hba-web` | `slam-eval.tool=hba`, `slam-eval.service=web` |
+| **Read-only View** | `hba-view-<basename>` | `slam-eval.tool=hba`, `slam-eval.service=view` |
 
 ---
 
