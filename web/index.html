@@ -208,11 +208,20 @@
         <input type="text" id="input-run-name" placeholder="e.g. aimbag_refined" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
       </div>
 
+      <!-- Configuration Preset -->
+      <div>
+        <label class="block text-slate-400 mb-1 font-medium">Configuration Preset</label>
+        <select id="input-preset-select" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500 font-medium">
+          <option value="default" selected>Optimal Default (MME Sharpness: 2 layers, 1.5m voxel)</option>
+          <option value="legacy">Upstream Legacy (Original Paper: 3 layers, 4.0m voxel)</option>
+        </select>
+      </div>
+
       <!-- HBA Parameters Grid -->
       <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
         <div>
           <label class="block text-slate-400 mb-1 font-medium">Total Layers</label>
-          <input type="number" id="param-layers" value="3" min="1" max="5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+          <input type="number" id="param-layers" value="2" min="1" max="5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
         </div>
         <div>
           <label class="block text-slate-400 mb-1 font-medium">Threads</label>
@@ -220,7 +229,7 @@
         </div>
         <div>
           <label class="block text-slate-400 mb-1 font-medium">Voxel Size (m)</label>
-          <input type="number" id="param-voxel-size" value="4.0" step="0.5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+          <input type="number" id="param-voxel-size" value="1.5" step="0.5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
         </div>
         <div>
           <label class="block text-slate-400 mb-1 font-medium">Downsample (m)</label>
@@ -228,7 +237,7 @@
         </div>
         <div>
           <label class="block text-slate-400 mb-1 font-medium">Plane Threshold</label>
-          <input type="number" id="param-eigen-ratio" value="0.1" step="0.05" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
+          <input type="number" id="param-eigen-ratio" value="0.05" step="0.01" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200">
         </div>
         <div>
           <label class="block text-slate-400 mb-1 font-medium">Max Iterations</label>
@@ -243,7 +252,7 @@
           <span>Save Point Cloud Maps (.pcd)</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer text-slate-300">
-          <input type="checkbox" id="flag-calc-mme" class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
+          <input type="checkbox" id="flag-calc-mme" checked class="rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0">
           <span>Compute Mean Map Entropy (MME)</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer text-slate-300">

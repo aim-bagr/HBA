@@ -22,15 +22,19 @@ Mode Options:
   --rebuild             Rebuild the docker image before running
   -h, --help            Show this help message
 
+Presets & Configurations:
+  --config <name|path>  Config preset ('default' or 'legacy') or path to JSON config
+  --preset <name>       Preset name ('default' [optimal] or 'legacy' [upstream paper])
+
 Optimization Options (passed to hba_standalone):
   --glim <dir>          Path to GLIM output directory (e.g. ~/data/glim_results/aimbag)
   --input <dir>         Path to standard HBA directory (contains pcd/ and pose.json)
   -o, --output <dir>    Output results directory (default: /data/hba_results/<name>)
-  --layers <int>        Number of hierarchical layers (default: 3)
+  --layers <int>        Number of hierarchical layers (default: 2 [legacy: 3])
   --threads <int>       Number of worker threads (default: 16)
-  --voxel-size <float>  Initial voxel grid size in meters (default: 4.0)
+  --voxel-size <float>  Initial voxel grid size in meters (default: 1.5 [legacy: 4.0])
   --downsample <float>  Point cloud downsample leaf size (default: 0.1)
-  --eigen-ratio <float> Surface plane threshold ratio (default: 0.1)
+  --eigen-ratio <float> Surface plane threshold ratio (default: 0.05 [legacy: 0.1])
   --reject-ratio <float> Residual outlier rejection ratio (default: 0.05)
   --max-iter <int>      Max Levenberg-Marquardt damping iterations (default: 10)
   --save-maps           Generate and save map_before.pcd and map_after.pcd
@@ -41,8 +45,11 @@ Examples:
   # Launch interactive web studio on port 8081:
   ./run_hba.sh --web 8081
 
-  # Run headless optimization on GLIM results:
+  # Run headless optimization on GLIM results (uses optimal default):
   ./run_hba.sh --glim ~/data/glim_results/aimbag -o ~/data/hba_results/aimbag_refined --save-maps
+
+  # Run headless optimization using legacy paper defaults:
+  ./run_hba.sh --glim ~/data/glim_results/aimbag -o ~/data/hba_results/aimbag_legacy --config legacy
 
   # Run optimization on standard PCD directory:
   ./run_hba.sh --input ~/data/kitti07 -o ~/data/hba_results/kitti07_refined
@@ -77,6 +84,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       show_help
+      ;;
+    --config|--preset)
+      ARG_VAL="$2"
+      if [[ "$ARG_VAL" == "$SCRIPT_DIR/config"* ]]; then
+        CONTAINER_PATH="/opt/hba/config${ARG_VAL#$SCRIPT_DIR/config}"
+      elif [[ "$ARG_VAL" == "$HOME/data"* ]]; then
+        CONTAINER_PATH="/data${ARG_VAL#$HOME/data}"
+      else
+        CONTAINER_PATH="$ARG_VAL"
+      fi
+      HBA_ARGS+=("$1" "$CONTAINER_PATH")
+      shift 2
       ;;
     --glim)
       INPUT_DATASET_NAME="$2"
@@ -187,6 +206,7 @@ if [[ "$WEB_MODE" -eq 1 ]]; then
     --ipc=host \
     -p "${WEB_PORT}:${WEB_PORT}" \
     -v "${DATA_DIR}:/data:rw" \
+    -v "${SCRIPT_DIR}/config:/opt/hba/config:ro" \
     -v "${SCRIPT_DIR}/web:/opt/hba/web:ro" \
     -v "${SCRIPT_DIR}/server:/opt/hba/server:ro" \
     -w /opt/hba \
@@ -231,4 +251,5 @@ docker run --rm $DOCKER_TTY_FLAGS \
   --user "$(id -u):$(id -g)" \
   --ipc=host \
   -v "${DATA_DIR}:/data:rw" \
+  -v "${SCRIPT_DIR}/config:/opt/hba/config:ro" \
   "$IMAGE_NAME" "${HBA_ARGS[@]}"

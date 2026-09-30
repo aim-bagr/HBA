@@ -39,8 +39,8 @@ public:
     layer_num = 1;
     max_iter = 10;
     downsample_size = 0.1;
-    voxel_size = 4.0;
-    eigen_ratio = 0.1;
+    voxel_size = 1.5;
+    eigen_ratio = 0.05;
     reject_ratio = 0.05;
     pose_vec.clear(); mthreads.clear(); pcds.clear();
     hessians.clear(); mem_costs.clear();
@@ -126,7 +126,9 @@ public:
   std::vector<LAYER> layers;
   std::string data_path;
 
-  HBA(int total_layer_num_, std::string data_path_, int thread_num_)
+  HBA(int total_layer_num_, std::string data_path_, int thread_num_,
+      double voxel_size_ = 1.5, double eigen_ratio_ = 0.05, double downsample_size_ = 0.1,
+      double reject_ratio_ = 0.05, int max_iter_ = 10)
   {
     total_layer_num = total_layer_num_;
     thread_num = thread_num_;
@@ -137,6 +139,11 @@ public:
     {
       layers[i].layer_num = i+1;
       layers[i].thread_num = thread_num;
+      layers[i].voxel_size = voxel_size_;
+      layers[i].eigen_ratio = eigen_ratio_;
+      layers[i].downsample_size = downsample_size_;
+      layers[i].reject_ratio = reject_ratio_;
+      layers[i].max_iter = max_iter_;
     }
     layers[0].data_path = data_path;
     layers[0].pose_vec = mypcl::read_pose(data_path + "pose.json");
@@ -155,7 +162,9 @@ public:
   }
 
   HBA(int total_layer_num_, const std::vector<mypcl::pose>& init_poses,
-      const std::vector<pcl::PointCloud<PointType>::Ptr>& init_pcds, int thread_num_)
+      const std::vector<pcl::PointCloud<PointType>::Ptr>& init_pcds, int thread_num_,
+      double voxel_size_ = 1.5, double eigen_ratio_ = 0.05, double downsample_size_ = 0.1,
+      double reject_ratio_ = 0.05, int max_iter_ = 10)
   {
     total_layer_num = total_layer_num_;
     thread_num = thread_num_;
@@ -166,6 +175,11 @@ public:
     {
       layers[i].layer_num = i+1;
       layers[i].thread_num = thread_num;
+      layers[i].voxel_size = voxel_size_;
+      layers[i].eigen_ratio = eigen_ratio_;
+      layers[i].downsample_size = downsample_size_;
+      layers[i].reject_ratio = reject_ratio_;
+      layers[i].max_iter = max_iter_;
     }
     layers[0].data_path = "";
     layers[0].pose_vec = init_poses;

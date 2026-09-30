@@ -1,0 +1,11 @@
+{
+  "name": "legacy",
+  "description": "Original upstream default configuration (HKU-MARS HBA paper settings)",
+  "total_layer_num": 3,
+  "voxel_size": 4.0,
+  "eigen_ratio": 0.1,
+  "downsample_size": 0.1,
+  "reject_ratio": 0.05,
+  "max_iter": 10,
+  "calc_mme": true
+}

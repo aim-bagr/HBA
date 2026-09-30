@@ -38,6 +38,7 @@ const closeLauncherBtn = document.getElementById('close-launcher-btn');
 const launcherModal = document.getElementById('launcher-modal');
 const launcherForm = document.getElementById('launcher-form');
 const inputGlimSelect = document.getElementById('input-glim-select');
+const inputPresetSelect = document.getElementById('input-preset-select');
 const inputRunName = document.getElementById('input-run-name');
 const startJobBtn = document.getElementById('start-job-btn');
 const headerStopBtn = document.getElementById('header-stop-btn');
@@ -283,6 +284,21 @@ function setupUIEvents() {
     await fetch('/api/jobs/stop', { method: 'POST' });
   });
 
+  if (inputPresetSelect) {
+    inputPresetSelect.addEventListener('change', () => {
+      const preset = inputPresetSelect.value;
+      if (preset === 'legacy') {
+        document.getElementById('param-layers').value = '3';
+        document.getElementById('param-voxel-size').value = '4.0';
+        document.getElementById('param-eigen-ratio').value = '0.1';
+      } else {
+        document.getElementById('param-layers').value = '2';
+        document.getElementById('param-voxel-size').value = '1.5';
+        document.getElementById('param-eigen-ratio').value = '0.05';
+      }
+    });
+  }
+
   // Launcher Form Submit
   launcherForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -293,6 +309,7 @@ function setupUIEvents() {
       source_type: 'glim',
       dataset_path: glimPath,
       run_name: inputRunName.value.trim() || null,
+      config_preset: inputPresetSelect ? inputPresetSelect.value : 'default',
       total_layer_num: parseInt(document.getElementById('param-layers').value, 10),
       thread_num: parseInt(document.getElementById('param-threads').value, 10),
       voxel_size: parseFloat(document.getElementById('param-voxel-size').value),

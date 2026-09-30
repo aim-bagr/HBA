@@ -36,18 +36,84 @@ struct HBAOptions {
   std::string glim_dir = "";
   std::string input_dir = "";
   std::string output_dir = "./results";
-  int total_layer_num = 3;
+  std::string config_name = "default";
+  int total_layer_num = 2;   // Optimal default (previously 3)
   int thread_num = 16;
   int pcd_fill_num = 0;
-  double voxel_size = 4.0;
+  double voxel_size = 1.5;   // Optimal default (previously 4.0)
   double downsample_size = 0.1;
-  double eigen_ratio = 0.1;
+  double eigen_ratio = 0.05; // Optimal default (previously 0.1)
   double reject_ratio = 0.05;
   int max_iter = 10;
   bool save_maps = false;
-  bool calc_mme = false;
+  bool calc_mme = true;
   bool zero_origin = false;
 };
+
+void apply_preset(HBAOptions& opt, const std::string& name) {
+  if (name == "legacy" || name == "upstream" || name == "default_legacy") {
+    opt.config_name = "legacy";
+    opt.total_layer_num = 3;
+    opt.voxel_size = 4.0;
+    opt.eigen_ratio = 0.1;
+    opt.downsample_size = 0.1;
+    opt.reject_ratio = 0.05;
+    opt.max_iter = 10;
+  } else if (name == "default" || name == "optimal") {
+    opt.config_name = "default";
+    opt.total_layer_num = 2;
+    opt.voxel_size = 1.5;
+    opt.eigen_ratio = 0.05;
+    opt.downsample_size = 0.1;
+    opt.reject_ratio = 0.05;
+    opt.max_iter = 10;
+  }
+}
+
+bool load_config_file(const std::string& filepath, HBAOptions& opt) {
+  std::ifstream file(filepath);
+  if (!file.is_open()) return false;
+  std::string line;
+  while (std::getline(file, line)) {
+    auto parse_val = [&](const std::string& key, auto& out) {
+      size_t pos = line.find("\"" + key + "\"");
+      if (pos != std::string::npos) {
+        size_t col = line.find(':', pos);
+        if (col != std::string::npos) {
+          std::string rest = line.substr(col + 1);
+          size_t val_start = rest.find_first_not_of(" \t\"");
+          size_t val_end = rest.find_last_not_of(" \t,\"\r\n");
+          if (val_start != std::string::npos && val_end != std::string::npos && val_end >= val_start) {
+            std::string sval = rest.substr(val_start, val_end - val_start + 1);
+            if constexpr (std::is_same_v<std::decay_t<decltype(out)>, int>) {
+              out = std::stoi(sval);
+            } else if constexpr (std::is_same_v<std::decay_t<decltype(out)>, double>) {
+              out = std::stod(sval);
+            } else if constexpr (std::is_same_v<std::decay_t<decltype(out)>, std::string>) {
+              out = sval;
+            }
+          }
+        }
+      }
+    };
+    parse_val("name", opt.config_name);
+    parse_val("total_layer_num", opt.total_layer_num);
+    parse_val("voxel_size", opt.voxel_size);
+    parse_val("eigen_ratio", opt.eigen_ratio);
+    parse_val("downsample_size", opt.downsample_size);
+    parse_val("reject_ratio", opt.reject_ratio);
+    parse_val("max_iter", opt.max_iter);
+    size_t mme_pos = line.find("\"calc_mme\"");
+    if (mme_pos != std::string::npos) {
+      if (line.find("false", mme_pos) != std::string::npos || line.find("0", mme_pos) != std::string::npos) {
+        opt.calc_mme = false;
+      } else if (line.find("true", mme_pos) != std::string::npos || line.find("1", mme_pos) != std::string::npos) {
+        opt.calc_mme = true;
+      }
+    }
+  }
+  return true;
+}
 
 void print_help() {
   std::cout << "Usage: hba_standalone [options]\n\n"
@@ -55,19 +121,23 @@ void print_help() {
             << "  --glim <dir>          Path to GLIM output directory (contains 000000, 000001, ...)\n"
             << "  --input <dir>         Path to standard HBA directory (contains pcd/ and pose.json)\n"
             << "  -o, --output <dir>    Output results directory (default: ./results)\n\n"
+            << "Configuration & Presets:\n"
+            << "  --config <name|path>  Preset name ('default' or 'legacy') or path to JSON file\n"
+            << "  --preset <name>       Preset name ('default' [optimal] or 'legacy' [upstream paper])\n\n"
             << "Optimization Options:\n"
-            << "  --layers <int>        Total hierarchical layers (default: 3)\n"
+            << "  --layers <int>        Total hierarchical layers (default: 2 [legacy: 3])\n"
             << "  --threads <int>       Number of worker threads (default: 16)\n"
-            << "  --voxel-size <float>  Initial voxel grid size in meters (default: 4.0)\n"
+            << "  --voxel-size <float>  Initial voxel grid size in meters (default: 1.5 [legacy: 4.0])\n"
             << "  --downsample <float>  Point cloud downsample leaf size (default: 0.1)\n"
-            << "  --eigen-ratio <float> Surface plane threshold ratio (default: 0.1)\n"
+            << "  --eigen-ratio <float> Surface plane threshold ratio (default: 0.05 [legacy: 0.1])\n"
             << "  --reject-ratio <float> Residual outlier rejection ratio (default: 0.05)\n"
             << "  --max-iter <int>      Max iterations per local BA window (default: 10)\n"
             << "  --pcd-fill <int>      Leading zero digits in PCD filenames (default: 0)\n"
             << "  --zero-origin         Reference poses relative to first pose (default: false)\n\n"
-            << "Output Artifacts:\n"
+            << "Output Artifacts & Metrics:\n"
             << "  --save-maps           Generate and save map_before.pcd and map_after.pcd\n"
-            << "  --calc-mme            Calculate Mean Map Entropy (MME) metric before & after\n"
+            << "  --calc-mme            Calculate Mean Map Entropy (MME) metric before & after (default: true)\n"
+            << "  --no-mme              Skip Mean Map Entropy (MME) metric calculation\n"
             << "  -h, --help            Show this help message\n";
 }
 
@@ -77,6 +147,21 @@ bool parse_args(int argc, char** argv, HBAOptions& opt) {
     if (arg == "-h" || arg == "--help") {
       print_help();
       exit(0);
+    } else if ((arg == "--config" || arg == "--preset") && i + 1 < argc) {
+      std::string val = argv[++i];
+      if (val == "legacy" || val == "upstream" || val == "default_legacy" || val == "default" || val == "optimal") {
+        apply_preset(opt, val);
+      } else if (fs::exists(val)) {
+        if (!load_config_file(val, opt)) {
+          std::cerr << "Warning: Failed to parse config file: " << val << "\n";
+        }
+      } else if (fs::exists("/opt/hba/config/config_" + val + ".json")) {
+        load_config_file("/opt/hba/config/config_" + val + ".json", opt);
+      } else if (fs::exists("config/config_" + val + ".json")) {
+        load_config_file("config/config_" + val + ".json", opt);
+      } else {
+        std::cerr << "Warning: Unknown preset or missing config file: " << val << "\n";
+      }
     } else if (arg == "--glim" && i + 1 < argc) {
       opt.glim_dir = argv[++i];
     } else if (arg == "--input" && i + 1 < argc) {
@@ -103,6 +188,8 @@ bool parse_args(int argc, char** argv, HBAOptions& opt) {
       opt.save_maps = true;
     } else if (arg == "--calc-mme") {
       opt.calc_mme = true;
+    } else if (arg == "--no-mme" || arg == "--skip-mme") {
+      opt.calc_mme = false;
     } else if (arg == "--zero-origin") {
       opt.zero_origin = true;
     } else {
@@ -614,7 +701,9 @@ int main(int argc, char** argv)
     effective_layers = max_possible_layers;
   }
 
-  std::cout << "[config] Total Scans: " << num_scans << " | Layers: " << effective_layers
+  std::cout << "[config] Preset: " << opt.config_name
+            << " | Total Scans: " << num_scans << " | Layers: " << effective_layers
+            << " | Voxel Size: " << opt.voxel_size << "m | Eigen Ratio: " << opt.eigen_ratio
             << " | Worker Threads: " << opt.thread_num << "\n";
 
   // Write initial keyframe poses
@@ -622,7 +711,9 @@ int main(int argc, char** argv)
   mypcl::write_pose_file(init_poses, opt.output_dir + "/poses_keyframes_input.json");
 
   // 2. Initialize HBA
-  HBA hba(effective_layers, init_poses, init_clouds, opt.thread_num);
+  HBA hba(effective_layers, init_poses, init_clouds, opt.thread_num,
+          opt.voxel_size, opt.eigen_ratio, opt.downsample_size,
+          opt.reject_ratio, opt.max_iter);
 
   for (int i = 0; i < effective_layers; ++i) {
     hba.layers[i].voxel_size = opt.voxel_size;
@@ -706,6 +797,7 @@ int main(int argc, char** argv)
   std::ofstream sum_file(opt.output_dir + "/summary.json");
   sum_file << "{\n"
            << "  \"dataset_path\": \"" << dataset_path << "\",\n"
+           << "  \"config_preset\": \"" << opt.config_name << "\",\n"
            << "  \"num_scans\": " << num_scans << ",\n"
            << "  \"dense_poses_count\": " << dense_poses.size() << ",\n"
            << "  \"total_layers\": " << effective_layers << ",\n"
@@ -715,14 +807,18 @@ int main(int argc, char** argv)
            << "  \"residual_reduction_pct\": " << res_drop_pct << ",\n"
            << "  \"mme_before\": " << mme_before << ",\n"
            << "  \"mme_after\": " << mme_after << ",\n"
+           << "  \"mme_change\": " << (mme_after - mme_before) << ",\n"
            << "  \"elapsed_sec\": " << total_sec << ",\n"
            << "  \"output_dir\": \"" << opt.output_dir << "\"\n"
            << "}\n";
   sum_file.close();
 
   std::cout << "========================================================\n"
-            << "[progress] state=completed | residual_reduction=" << std::setprecision(2) << res_drop_pct
-            << "% | elapsed=" << std::setprecision(2) << total_sec << "s\n"
+            << "[progress] state=completed | residual_reduction=" << std::setprecision(2) << res_drop_pct << "%";
+  if (opt.calc_mme) {
+    std::cout << " | mme_change=" << std::showpos << std::setprecision(4) << (mme_after - mme_before) << std::noshowpos;
+  }
+  std::cout << " | elapsed=" << std::setprecision(2) << total_sec << "s\n"
             << "Results saved to: " << opt.output_dir << "\n"
             << "  - poses_keyframes_input.txt\n"
             << "  - poses_keyframes_refined.txt\n";

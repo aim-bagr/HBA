@@ -1,0 +1,11 @@
+{
+  "name": "default",
+  "description": "AIM Standalone optimal configuration (optimized for MME sharpness and low drift)",
+  "total_layer_num": 2,
+  "voxel_size": 1.5,
+  "eigen_ratio": 0.05,
+  "downsample_size": 0.1,
+  "reject_ratio": 0.05,
+  "max_iter": 10,
+  "calc_mme": true
+}
