@@ -82,8 +82,21 @@ window.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   setupUIEvents();
   refreshGlimRuns();
-  refreshHbaRuns();
+  applyViewMode().then(refreshHbaRuns);
 });
+
+// Read-only view mode (./run_hba.sh --view): hide job controls
+async function applyViewMode() {
+  try {
+    const res = await fetch('/api/mode');
+    if (!res.ok || !(await res.json()).view_mode) return;
+    toggleLauncherBtn.classList.add('hidden');
+    headerStopBtn.classList.add('hidden');
+    launcherModal.classList.add('hidden');
+    document.getElementById('progress-hud-strip').classList.add('hidden');
+    toggleLauncherBtn.insertAdjacentHTML('afterend', '<span class="text-[11px] text-amber-300 px-2">View mode (read-only)</span>');
+  } catch (e) {}
+}
 
 // Setup Three.js Canvas
 function initThree() {
@@ -486,6 +499,12 @@ async function refreshGlimRuns() {
   } catch (e) {}
 }
 
+// Store status label (view mode only): selection source, review status
+function runStatus(r) {
+  if (!r.selection_source && !r.review_status) return '';
+  return `${r.selected ? 'selected ' : ''}${r.selection_source || '?'} / ${r.review_status || '?'}`;
+}
+
 async function refreshHbaRuns() {
   try {
     const res = await fetch('/api/runs');
@@ -504,7 +523,7 @@ async function refreshHbaRuns() {
       // Header dropdown
       const opt = document.createElement('option');
       opt.value = r.name;
-      opt.textContent = `${r.name} (${r.submaps_count} scans)`;
+      opt.textContent = `${r.name} (${r.submaps_count} scans)${runStatus(r) ? ' [' + runStatus(r) + ']' : ''}`;
       if (r.name === currentRunName) opt.selected = true;
       headerRunSelect.appendChild(opt);
 
@@ -514,6 +533,7 @@ async function refreshHbaRuns() {
       card.innerHTML = `
         <div class="flex-1 min-w-0 pr-2">
           <div class="font-semibold text-slate-200 truncate">${r.name}</div>
+          ${runStatus(r) ? `<div class="text-[10px] text-amber-300 truncate" title="GLIM ${r.glim_image || '?'} / HBA ${r.hba_image || '?'}">${runStatus(r)} &middot; glim ${r.glim_image || '?'} &middot; hba ${r.hba_image || '?'}</div>` : ''}
           <div class="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
             <span>${r.submaps_count} submaps</span>
             <span>•</span>
