@@ -51,16 +51,27 @@ This fork transforms HBA into a production-grade, standalone LiDAR map optimizat
 
 The easiest way to run this fork is using the [`run_hba.sh`](run_hba.sh) launcher script. It automatically handles GPU detection (`--gpus all`), automated container pulling from GHCR, and volume mounts.
 
-### 1. Run Optimization on GLIM Results
+### 1. Run Optimization on GLIM Results (Optimal Default)
+
+By default, HBA runs with the **optimal configuration** (`--layers 2 --voxel-size 1.5 --eigen-ratio 0.05`), optimized to reduce drift and sharpen map entropy (MME). Both residual reduction and MME changes are computed and logged automatically by default (pass `--no-mme` to skip entropy computation):
 
 ```bash
 ./run_hba.sh --glim ~/data/glim_results/my_dataset \
              -o ~/data/hba_results/my_dataset_refined \
-             --calc-mme \
              --save-maps
 ```
 
-### 2. Run Optimization on Standard PCD Dataset
+### 2. Run with Upstream Paper Defaults (`--config legacy`)
+
+To run with the original upstream paper configuration (`--layers 3 --voxel-size 4.0 --eigen-ratio 0.1`):
+
+```bash
+./run_hba.sh --glim ~/data/glim_results/my_dataset \
+             -o ~/data/hba_results/my_dataset_legacy \
+             --config legacy
+```
+
+### 3. Run Optimization on Standard PCD Dataset
 
 ```bash
 ./run_hba.sh --input ~/data/kitti07 \
@@ -68,15 +79,15 @@ The easiest way to run this fork is using the [`run_hba.sh`](run_hba.sh) launche
              --save-maps
 ```
 
-### 3. Launch the 3D Web Studio
+### 4. Launch the 3D Web Studio
 
 ```bash
 ./run_hba.sh --web 8081
 ```
-Open **`http://localhost:8081`** in your browser to launch runs, stream logs, and visually inspect map alignment.
+Open **`http://localhost:8081`** in your browser to launch runs, select configuration presets, stream logs, and visually inspect map alignment.
 
 > [!TIP]
-> Run `./run_hba.sh --help` for the full list of optimization parameters, layer limits, voxel sizes, and filtering thresholds.
+> Presets are defined in `config/config_default.json` and `config/config_legacy.json`. Run `./run_hba.sh --help` for the full list of optimization parameters, layer limits, voxel sizes, and filtering thresholds.
 
 ---
 

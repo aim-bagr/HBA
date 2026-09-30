@@ -169,6 +169,8 @@ class ProcessManager:
             cmd.extend(["--input", str(dataset_path)])
 
         cmd.extend(["-o", str(output_dir)])
+        if req.config_preset:
+            cmd.extend(["--config", req.config_preset])
         cmd.extend(["--layers", str(req.total_layer_num)])
         cmd.extend(["--threads", str(req.thread_num)])
         cmd.extend(["--voxel-size", str(req.voxel_size)])
