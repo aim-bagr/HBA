@@ -5,7 +5,13 @@ set -e
 # HBA Standalone Runner & Web Studio (via Docker + CUDA)
 # ==============================================================================
 
-IMAGE_NAME="hba:standalone"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GIT_SHA="$(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD 2>/dev/null || echo "standalone")"
+if ! git -C "$SCRIPT_DIR" diff --quiet HEAD 2>/dev/null; then
+  GIT_SHA="${GIT_SHA}-dirty"
+fi
+IMAGE_TAG="${IMAGE_TAG:-$GIT_SHA}"
+IMAGE_NAME="${IMAGE_NAME:-hba:$IMAGE_TAG}"
 
 function show_help() {
   cat << 'EOF'
@@ -52,6 +58,7 @@ WEB_MODE=0
 WEB_PORT=8081
 REBUILD=0
 HBA_ARGS=()
+INPUT_DATASET_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +79,7 @@ while [[ $# -gt 0 ]]; do
       show_help
       ;;
     --glim)
+      INPUT_DATASET_NAME="$2"
       # Remap host path to container path if inside DATA_DIR
       ARG_PATH="$2"
       if [[ "$ARG_PATH" == "$HOME/data"* ]]; then
@@ -85,6 +93,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --input)
+      INPUT_DATASET_NAME="$2"
       ARG_PATH="$2"
       if [[ "$ARG_PATH" == "$HOME/data"* ]]; then
         CONTAINER_PATH="/data${ARG_PATH#$HOME/data}"
@@ -126,11 +135,26 @@ if [ -t 0 ] && [ -t 1 ]; then
   DOCKER_TTY_FLAGS="-it"
 fi
 
-# 2. Check / Build Image
+# 2. Check / Build / Pull Image
 IMAGE_EXISTS=$(docker images -q "$IMAGE_NAME" 2>/dev/null || true)
+if [[ -z "$IMAGE_EXISTS" && "$REBUILD" -eq 0 ]]; then
+  # Try pulling from GHCR if available
+  if docker pull "ghcr.io/aim-bagr/hba:${IMAGE_TAG}" 2>/dev/null; then
+    IMAGE_NAME="ghcr.io/aim-bagr/hba:${IMAGE_TAG}"
+    IMAGE_EXISTS=1
+  elif docker pull "ghcr.io/aim-bagr/hba:latest" 2>/dev/null; then
+    IMAGE_NAME="ghcr.io/aim-bagr/hba:latest"
+    IMAGE_EXISTS=1
+  elif docker images -q "hba:standalone" 2>/dev/null | grep -q .; then
+    IMAGE_NAME="hba:standalone"
+    IMAGE_EXISTS=1
+  fi
+fi
+
 if [[ -z "$IMAGE_EXISTS" || "$REBUILD" -eq 1 ]]; then
   echo "Building Docker image: $IMAGE_NAME..."
-  docker build -t "$IMAGE_NAME" "$SCRIPT_DIR"
+  FULL_GIT_SHA="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")"
+  docker build --build-arg GIT_SHA="$FULL_GIT_SHA" -t "$IMAGE_NAME" -t "hba:standalone" "$SCRIPT_DIR"
 fi
 
 # 3. Web Studio Mode
@@ -142,7 +166,7 @@ if [[ "$WEB_MODE" -eq 1 ]]; then
     docker stop "$EXISTING_CONTAINER" >/dev/null 2>&1 || true
     sleep 1
   fi
-  docker rm -f hba_web_studio >/dev/null 2>&1 || true
+  docker rm -f hba-web hba_web_studio >/dev/null 2>&1 || true
 
   echo "=========================================================="
   echo "   Launching HBA Web Studio & Dual-Layer Visualizer       "
@@ -150,10 +174,14 @@ if [[ "$WEB_MODE" -eq 1 ]]; then
   echo "  Web Interface URL : http://localhost:${WEB_PORT}"
   echo "  Mapped Data Root  : ${DATA_DIR} -> /data"
   echo "  GPU Acceleration  : ${DOCKER_GPU_FLAGS:-Disabled (CPU)}"
+  echo "  Container Name    : hba-web"
+  echo "  Image Name        : ${IMAGE_NAME}"
   echo "=========================================================="
 
   docker run --rm \
-    --name hba_web_studio \
+    --name hba-web \
+    --label slam-eval.tool=hba \
+    --label slam-eval.service=web \
     $DOCKER_GPU_FLAGS \
     --user "$(id -u):$(id -g)" \
     --ipc=host \
@@ -172,6 +200,7 @@ fi
 if [[ ${#HBA_ARGS[@]} -eq 0 ]] && command -v zenity &>/dev/null && [[ -n "$DISPLAY" ]]; then
   SELECTED_DIR=$(zenity --file-selection --directory --title="Select GLIM results or HBA dataset directory" 2>/dev/null || true)
   if [[ -n "$SELECTED_DIR" ]]; then
+    INPUT_DATASET_NAME="$SELECTED_DIR"
     if [[ "$SELECTED_DIR" == "$HOME/data"* ]]; then
       CONTAINER_PATH="/data${SELECTED_DIR#$HOME/data}"
     else
@@ -188,8 +217,16 @@ if [[ ${#HBA_ARGS[@]} -eq 0 ]]; then
 fi
 
 # 5. Headless Optimization CLI Run
-echo "Executing HBA Standalone Runner inside container..."
+DATASET_CLEAN="$(basename "${INPUT_DATASET_NAME%/}" | tr -c 'A-Za-z0-9_.\n-' '-')"
+RUN_TS="$(date +%Y%m%d-%H%M)"
+CONTAINER_NAME="hba-${DATASET_CLEAN:-run}-${RUN_TS}"
+
+echo "Executing HBA Standalone Runner inside container ($CONTAINER_NAME)..."
 docker run --rm $DOCKER_TTY_FLAGS \
+  --name "$CONTAINER_NAME" \
+  --label slam-eval.tool=hba \
+  --label slam-eval.dataset="${DATASET_CLEAN:-unknown}" \
+  --label slam-eval.run-id="${RUN_TS}" \
   $DOCKER_GPU_FLAGS \
   --user "$(id -u):$(id -g)" \
   --ipc=host \
