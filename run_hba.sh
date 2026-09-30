@@ -11,7 +11,7 @@ if ! git -C "$SCRIPT_DIR" diff --quiet HEAD 2>/dev/null; then
   GIT_SHA="${GIT_SHA}-dirty"
 fi
 IMAGE_TAG="${IMAGE_TAG:-$GIT_SHA}"
-IMAGE_NAME="${HBA_IMAGE:-hba:standalone}"
+IMAGE_NAME="${IMAGE_NAME:-hba:$IMAGE_TAG}"
 
 function show_help() {
   cat << 'EOF'
@@ -210,10 +210,7 @@ fi
 if [[ -z "$IMAGE_EXISTS" || "$REBUILD" -eq 1 ]]; then
   echo "Building Docker image: $IMAGE_NAME..."
   FULL_GIT_SHA="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")"
-  EXTRA_TAG=(-t "hba:standalone")
-  # A custom HBA_IMAGE must never retag hba:standalone
-  [[ -n "${HBA_IMAGE:-}" ]] && EXTRA_TAG=()
-  docker build --build-arg GIT_SHA="$FULL_GIT_SHA" -t "$IMAGE_NAME" "${EXTRA_TAG[@]}" "$SCRIPT_DIR"
+  docker build --build-arg GIT_SHA="$FULL_GIT_SHA" -t "$IMAGE_NAME" -t "hba:standalone" "$SCRIPT_DIR"
 fi
 
 # 3a. Read-only View Mode (stored results under DATA_DIR)
